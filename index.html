@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meta Muse Video 节点检测</title>
+<style>
+:root{--bg:#eef1f4;--card:#fff;--ink:#14213d;--sub:#5b6577;--line:#d5dbe3;--ok:#1f7a4d;--okbg:#e2f3ea;--bad:#c8362f;--badbg:#fbe6e4;--warn:#9a6a00;--warnbg:#fdf2d6;--acc:#0f6d8c}
+@media (prefers-color-scheme:dark){:root{--bg:#10151d;--card:#18202b;--ink:#e8edf4;--sub:#93a0b4;--line:#2b3646;--ok:#5fd09a;--okbg:#17342a;--bad:#ff8a80;--badbg:#3a1d1b;--warn:#f0c060;--warnbg:#3a2f12;--acc:#6cc4e0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,"PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif}
+main{max-width:720px;margin:0 auto;padding:28px 16px 60px}
+h1{font-size:25px;margin:0 0 6px}
+.lead{color:var(--sub);margin:0 0 18px}
+label{display:block;font-weight:600;margin:14px 0 6px}
+input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+button,a.btn{display:inline-block;padding:11px 22px;border:0;border-radius:8px;background:var(--ink);color:var(--bg);font:inherit;font-weight:600;cursor:pointer;text-decoration:none}
+button.ghost,a.ghost{background:transparent;color:var(--sub);border:1px solid var(--line);padding:9px 16px;font-weight:400;font-size:14px}
+button:disabled{opacity:.5}
+.hint{font-size:13px;color:var(--sub);margin-top:6px}
+.row{display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap}
+.res{margin-top:20px;padding:18px;border-radius:12px;border:1px solid var(--line);background:var(--card)}
+.res.ok{background:var(--okbg);border-color:var(--ok)}
+.res.bad{background:var(--badbg);border-color:var(--bad)}
+.res.warn{background:var(--warnbg);border-color:var(--warn)}
+.big{font-size:21px;font-weight:700;margin:0 0 4px}
+.ok .big{color:var(--ok)}.bad .big{color:var(--bad)}.warn .big{color:var(--warn)}
+.why{margin:0 0 12px;font-size:14px;color:var(--sub)}
+dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:15px}
+dt{color:var(--sub)}dd{margin:0;word-break:break-all}
+.y{color:var(--ok)}.n{color:var(--bad)}.w{color:var(--warn)}
+h3{margin:28px 0 8px;font-size:16px}
+.h{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:10px 0;border-top:1px solid var(--line);font-size:14px}
+.h span{color:var(--sub)}
+.note{margin-top:26px;font-size:13px;color:var(--sub)}
+.note li{margin-bottom:4px}
+</style>
+</head>
+<body>
+<main>
+<h1>Meta Muse Video 节点检测</h1>
+<p class="lead">先在代理软件里切到要测的节点，再点检测。页面会查看当前出口 IP 的国家，并测试能否连通 Meta AI 相关网站。</p>
+
+<label for="label">节点备注（可选）</label>
+<input id="label" placeholder="例如：美国-洛杉矶 02">
+
+<label for="allowed">可用地区代码</label>
+<input id="allowed" value="US,CA">
+<div class="hint">默认美国和加拿大，多个用英文逗号隔开。以后开放更多地区，在这里加上即可。</div>
+
+<div class="row">
+  <button id="go">检测当前节点</button>
+  <a class="btn ghost" href="https://www.meta.ai/" target="_blank" rel="noopener">打开 Meta AI 实测</a>
+</div>
+<div id="out" aria-live="polite"></div>
+
+<h3>检测记录</h3>
+<div id="hist"></div>
+<div class="row"><button class="ghost" id="clr">清空记录</button></div>
+
+<ul class="note">
+<li>页面只能验证节点这一侧：出口 IP 的地区、是否像数据中心 IP、Meta 网站能否连通。账号注册地、是否已获得预览资格，需要你登录后实际确认。</li>
+<li>通过检测也不保证一定能用。Meta 对数据中心 IP 和频繁切换的 IP 可能额外风控，换节点后建议重新登录或清除 meta.ai 的 Cookie。</li>
+<li>浏览器必须走代理才能测到节点。如果只有部分应用走代理，结果会是你直连的地区。</li>
+</ul>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const rn=new Intl.DisplayNames(['zh-Hans'],{type:'region'});
+const nm=c=>{try{return rn.of(c)+' ('+c+')'}catch(e){return c}};
+const ld=k=>{try{return localStorage.getItem(k)||''}catch(e){return ''}};
+const sv=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+let hist=[];try{hist=JSON.parse(ld('mv_hist')||'[]')}catch(e){}
+
+const TARGETS=[
+  {n:'Meta AI',u:'https://www.meta.ai/'},
+  {n:'Facebook',u:'https://www.facebook.com/'},
+  {n:'Instagram',u:'https://www.instagram.com/'},
+  {n:'Meta 内容分发网络',u:'https://static.xx.fbcdn.net/'}
+];
+const DC=/(amazon|aws|google|microsoft|azure|digitalocean|vultr|linode|akamai|ovh|hetzner|choopa|leaseweb|cloud|hosting|datacenter|data center|colo|m247|psychz|servers|vps)/i;
+
+async function getIP(){
+  try{
+    const r=await fetch('https://ipwho.is/?t='+Date.now(),{cache:'no-store'});const d=await r.json();
+    if(d.success!==false&&d.country_code)return{ip:d.ip,cc:d.country_code,city:d.city||'',org:(d.connection&&(d.connection.isp||d.connection.org))||''};
+  }catch(e){}
+  const r=await fetch('https://api.country.is/?t='+Date.now(),{cache:'no-store'});const d=await r.json();
+  return{ip:d.ip,cc:d.country,city:'',org:''};
+}
+
+async function ping(u){
+  const t=performance.now(),c=new AbortController(),to=setTimeout(()=>c.abort(),8000);
+  try{await fetch(u+'?t='+Date.now(),{mode:'no-cors',cache:'no-store',signal:c.signal});clearTimeout(to);return{ok:true,ms:Math.round(performance.now()-t)}}
+  catch(e){clearTimeout(to);return{ok:false}}
+}
+
+function renderHist(){
+  $('hist').innerHTML=hist.length?hist.map(h=>`<div class="h"><div>${esc(h.label||'未命名节点')} · ${esc(h.ip)} · ${esc(h.cc)}</div><b class="${h.cls==='ok'?'y':h.cls==='warn'?'w':'n'}">${esc(h.verdict)}</b><span>${esc(h.time)}</span><span>${esc(h.detail)}</span></div>`).join(''):'<div class="hint">暂无记录。</div>';
+}
+renderHist();
+$('clr').onclick=()=>{hist=[];sv('mv_hist','[]');renderHist()};
+
+$('go').onclick=async()=>{
+  const out=$('out');$('go').disabled=true;out.innerHTML='<p class="hint">检测中，约需 10 秒…</p>';
+  try{
+    const allowed=$('allowed').value.toUpperCase().split(/[,\s]+/).filter(Boolean);
+    const [me,...pings]=await Promise.all([getIP(),...TARGETS.map(t=>ping(t.u))]);
+    const geoOK=allowed.includes(me.cc);
+    const metaOK=pings[0].ok;
+    const failed=TARGETS.filter((t,i)=>!pings[i].ok).map(t=>t.n);
+    const dc=DC.test(me.org);
+    let cls,verdict,why;
+    if(!geoOK){cls='bad';verdict='地区不符';why='当前出口在 '+nm(me.cc)+'，不在可用地区内。请换美国或加拿大节点。'}
+    else if(!metaOK){cls='bad';verdict='连不通 Meta AI';why='地区符合，但 meta.ai 无法访问。该节点可能被 Meta 屏蔽或线路不通。'}
+    else if(dc||failed.length){cls='warn';verdict='勉强可用';why=(dc?'疑似数据中心 IP，Meta 可能额外风控。':'')+(failed.length?' 部分域名不通：'+failed.join('、')+'。':'')}
+    else{cls='ok';verdict='节点条件满足';why='地区符合，Meta 网站均可连通。接下来请登录账号实际确认。'}
+    const rows=TARGETS.map((t,i)=>`<dt>${t.n}</dt><dd class="${pings[i].ok?'y':'n'}">${pings[i].ok?'可连通 · '+pings[i].ms+' ms':'无法连通'}</dd>`).join('');
+    out.innerHTML=`<div class="res ${cls}"><p class="big">${verdict}</p><p class="why">${esc(why)}</p><dl>
+      <dt>出口 IP</dt><dd>${esc(me.ip)}</dd>
+      <dt>所在地区</dt><dd class="${geoOK?'y':'n'}">${nm(me.cc)}${me.city?' · '+esc(me.city):''}</dd>
+      ${me.org?`<dt>运营商</dt><dd class="${dc?'w':''}">${esc(me.org)}${dc?'（疑似数据中心）':''}</dd>`:''}
+      ${rows}</dl></div>`;
+    hist.unshift({label:$('label').value.trim(),ip:me.ip,cc:me.cc,cls,verdict,detail:me.org||'',time:new Date().toLocaleString('zh-CN')});
+    hist=hist.slice(0,30);sv('mv_hist',JSON.stringify(hist));renderHist();
+  }catch(e){
+    out.innerHTML='<div class="res bad"><p class="big">检测失败</p><p class="why">无法获取出口 IP，可能被广告拦截插件或网络阻止了 ipwho.is。关闭拦截后重试。</p></div>';
+  }
+  $('go').disabled=false;
+};
+</script>
+</body>
+</html>
